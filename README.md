@@ -1,6 +1,10 @@
 ## Advanced Lane Finding
 [![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
 
+Camera calibration results
+mean reprojection error without subpixel refinement: 0.157446473143611
+mean reprojection error with subpixel refinement: 0.11117617624420388
+
 The goals / steps of this project are the following:  
 
 * Compute the camera calibration matrix and distortion coefficients given a set of chessboard images.
