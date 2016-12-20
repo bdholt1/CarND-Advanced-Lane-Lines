@@ -130,6 +130,9 @@ class LaneDetector:
 
     def process(self, img):
 
+        if (img.shape[0] != 1280 or img.shape[1] != 720):
+            img = cv2.resize(img, (1280, 720))
+
         # Undistort the image
         undist = cv2.undistort(img, self.mtx, self.dist, None, self.mtx)
 
