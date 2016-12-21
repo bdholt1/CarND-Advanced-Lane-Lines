@@ -15,6 +15,107 @@ def calculate_lane_curvature(y, fit):
                / np.absolute(2*fit[0])
     return curverad
 
+class Line():
+    def __init__(self, is_left):
+        # is this the left or the right lane?
+        self.is_left = is_left
+        # was the line detected in the last iteration?
+        self.detected = False
+        # x values of the last n fits of the line
+        self.recent_xfitted = []
+        #average x values of the fitted line over the last n iterations
+        self.bestx = None
+        #polynomial coefficients averaged over the last n iterations
+        self.best_fit = None
+        #polynomial coefficients for the most recent fit
+        self.current_fit = [np.array([False])]
+        #radius of curvature of the line in some units
+        self.radius_of_curvature = None
+        #distance in meters of vehicle center from the line
+        self.line_base_pos = None
+        #difference in fit coefficients between last and new fits
+        self.diffs = np.array([0,0,0], dtype='float')
+        #x values for detected line pixels
+        self.allx = None
+        #y values for detected line pixels
+        self.ally = None
+
+        # Define conversions in x and y from pixels space to meters
+        self.ym_per_pix = 30/720 # meters per pixel in y dimension
+        self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
+
+        self.yvals = np.linspace(0, 100, num=101)*7.2  # to cover same y-range as image
+
+    def _locate_lane(self, birdseye, starting_centre):
+        lane_mask = np.zeros_like(birdseye)
+
+        row_start = birdseye.shape[0]//10 * 9
+        row_end = birdseye.shape[0]//10 * 10
+        prev_centre = starting_centre
+        col_start = prev_centre - 50
+        col_end = prev_centre + 50
+        lane_mask[row_start:row_end, col_start:col_end] = 1
+
+        for i in range(8, -1, -1):
+            row_start = birdseye.shape[0]//10 * i
+            row_end = birdseye.shape[0]//10 * (i+1)
+
+            best_col_centre = prev_centre
+            best = 0
+            for j in range(-50, 50):
+                col_start = prev_centre - 50 + j
+                col_end = prev_centre + 50 + j
+                s = np.sum(birdseye[row_start:row_end, col_start:col_end])
+                if s > best:
+                    best = s
+                    best_col_centre = prev_centre + j
+
+            prev_centre = best_col_centre
+            col_start = prev_centre - 50
+            col_end = prev_centre + 50
+            lane_mask[row_start:row_end, col_start:col_end] = 1
+
+        return lane_mask
+
+    def new_birdseye(self, birdseye):
+
+        if not self.detected:
+            print("detection lost")
+            histogram = smooth(np.sum(birdseye[birdseye.shape[0]//2:,:], axis=0), k=51)
+
+            # get the locations of the peaks as the starting points
+            # use a very wide window (200) to ensure only the highest peaks
+            starting_points = scipy.signal.find_peaks_cwt(histogram, np.array([200]))
+
+            if self.is_left:
+                if starting_points[0] < starting_points[1]:
+                    start = starting_points[0]
+                else:
+                    start = starting_points[1]
+            else:
+                if starting_points[0] < starting_points[1]:
+                    start = starting_points[1]
+                else:
+                    start = starting_points[0]
+        else:
+            start = self.fitx[-1]
+
+        mask = self._locate_lane(birdseye, start)
+        lane = (mask==1) & (birdseye==1)
+
+        # Fit a second order polynomial to each lane line
+        lane_pixels = np.nonzero(lane)
+        self.allx = lane_pixels[1] # * xm_per_pix
+        self.ally = lane_pixels[0] # * ym_per_pix
+        self.current_fit = np.polyfit(self.ally, self.allx, 2)
+        self.fitx = self.current_fit[0]*self.yvals**2 + self.current_fit[1]*self.yvals + self.current_fit[2]
+
+        curvature_fit = np.polyfit(self.ally * self.ym_per_pix, self.allx * self.xm_per_pix, 2)
+
+        # calculate lane curvature at the bottom of the image
+        self.radius_of_curvature = calculate_lane_curvature(720, curvature_fit)
+
+
 class LaneDetector:
 
     def __init__(self, calibration_file, debug=False):
@@ -44,6 +145,9 @@ class LaneDetector:
 
         self.M = cv2.getPerspectiveTransform(src, dst)
         self.Minv = cv2.getPerspectiveTransform(dst, src)
+
+        self.left = Line(is_left=True)
+        self.right = Line(is_left=False)
 
 
     def find_candidate_lane_pixels(self, undistorted):
@@ -95,38 +199,8 @@ class LaneDetector:
 
         return combined_binary
 
-
-    def locate_lane(self, birdseye, starting_centre):
-        lane_mask = np.zeros_like(birdseye)
-
-        row_start = birdseye.shape[0]//10 * 9
-        row_end = birdseye.shape[0]//10 * 10
-        prev_centre = starting_centre
-        col_start = prev_centre - 50
-        col_end = prev_centre + 50
-        lane_mask[row_start:row_end, col_start:col_end] = 1
-
-        for i in range(8, -1, -1):
-            row_start = birdseye.shape[0]//10 * i
-            row_end = birdseye.shape[0]//10 * (i+1)
-
-            best_col_centre = prev_centre
-            best = 0
-            for j in range(-50, 50):
-                col_start = prev_centre - 50 + j
-                col_end = prev_centre + 50 + j
-                s = np.sum(birdseye[row_start:row_end, col_start:col_end])
-                if s > best:
-                    best = s
-                    best_col_centre = prev_centre + j
-
-            prev_centre = best_col_centre
-            col_start = prev_centre - 50
-            col_end = prev_centre + 50
-            lane_mask[row_start:row_end, col_start:col_end] = 1
-
-        return lane_mask
-
+    def sanity_check(self):
+        return True
 
     def process(self, img):
 
@@ -140,70 +214,37 @@ class LaneDetector:
 
         birdseye = cv2.warpPerspective(combined, self.M, (self.cols, self.rows))
 
-        histogram = smooth(np.sum(birdseye[self.rows//2:,:], axis=0), k=51)
+        self.left.new_birdseye(birdseye)
+        self.right.new_birdseye(birdseye)
 
-        # get the locations of the peaks as the starting points
-        # use a very wide window (200) to ensure only the highest peaks
-        starting_lanes = scipy.signal.find_peaks_cwt(histogram, np.array([200]))
+        if not self.sanity_check():
+            # use previous values
+            # mark the lanes as not detected
 
-        left_mask = self.locate_lane(birdseye, starting_lanes[0])
-        left_lane = (left_mask==1) & (birdseye==1)
-
-        right_mask = self.locate_lane(birdseye, starting_lanes[1])
-        right_lane = (right_mask==1) & (birdseye==1)
-
-        lanes = np.dstack((np.zeros_like(birdseye), left_lane, right_lane))
-
-        if self.debug:
-            cv2.imshow('lanes', lanes)
-
-        # Fit a second order polynomial to each fake lane line
-        yvals = np.linspace(0, 100, num=101)*7.2  # to cover same y-range as image
-        left_lane_pixels = np.nonzero(left_lane)
-        leftx = left_lane_pixels[1] # * xm_per_pix
-        lefty = left_lane_pixels[0] # * ym_per_pix
-        left_fit = np.polyfit(lefty, leftx, 2)
-        left_fitx = left_fit[0]*yvals**2 + left_fit[1]*yvals + left_fit[2]
-
-        right_lane_pixels = np.nonzero(right_lane)
-        rightx = right_lane_pixels[1] # * xm_per_pix
-        righty = right_lane_pixels[0] # * ym_per_pix
-        right_fit = np.polyfit(righty, rightx, 2)
-        right_fitx = right_fit[0]*yvals**2 + right_fit[1]*yvals + right_fit[2]
 
         if self.debug:
             f = plt.figure()
-            plt.plot(leftx, lefty, 'o', color='red')
-            plt.plot(rightx, righty, 'o', color='blue')
+            plt.plot(self.left.allx, self.left.ally, 'o', color='red')
+            plt.plot(self.right.allx, self.right.ally, 'o', color='blue')
             plt.xlim(0, 1280)
             plt.ylim(0, 720)
-            plt.plot(left_fitx, yvals, color='green', linewidth=3)
-            plt.plot(right_fitx, yvals, color='green', linewidth=3)
+            plt.plot(self.left.fitx, self.left.yvals, color='green', linewidth=3)
+            plt.plot(self.right.fitx, self.right.yvals, color='green', linewidth=3)
             plt.gca().invert_yaxis() # to visualize as we do the images
             plt.show()
 
-        # Define conversions in x and y from pixels space to meters
-        ym_per_pix = 30/720 # meters per pixel in y dimension
-        xm_per_pix = 3.7/700 # meteres per pixel in x dimension
-
-        left_fit_cr = np.polyfit(lefty*ym_per_pix, leftx*xm_per_pix, 2)
-        right_fit_cr = np.polyfit(righty*ym_per_pix, rightx*xm_per_pix, 2)
-
-        # calculate lane curvature at the bottom of the image
-        left_lane_curvature = calculate_lane_curvature(720, left_fit_cr)
-        right_lane_curvature = calculate_lane_curvature(720, right_fit_cr)
 
         # Create an image to draw the lines on
         warp_zero = np.zeros_like(birdseye).astype(np.uint8)
         color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
         # Recast the x and y points into usable format for cv2.fillPoly()
-        pts_left = np.array([np.transpose(np.vstack([left_fitx, yvals]))])
-        pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, yvals])))])
+        pts_left = np.array([np.transpose(np.vstack([self.left.fitx, self.left.yvals]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right.fitx, self.right.yvals])))])
         pts = np.hstack((pts_left, pts_right))
 
         # Draw the lane onto the warped blank image
-        cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+        cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
 
         # Warp the blank back to original image space using inverse perspective matrix (Minv)
         newwarp = cv2.warpPerspective(color_warp, self.Minv, (self.cols, self.rows))
@@ -211,8 +252,8 @@ class LaneDetector:
         result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(result, str(left_lane_curvature), (10,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
-        cv2.putText(result, str(right_lane_curvature), (1000,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
+        cv2.putText(result, str(self.left.radius_of_curvature), (10,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
+        cv2.putText(result, str(self.right.radius_of_curvature), (1000,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
 
         return result
 
