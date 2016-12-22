@@ -34,7 +34,7 @@ import scipy.linalg # use numpy if scipy unavailable
 
 def ransac(data,model,n,k,t,d,debug=False,return_all=False):
     """fit model parameters to data using the RANSAC algorithm
-    
+
 This implementation written from pseudocode found at
 http://en.wikipedia.org/w/index.php?title=RANSAC&oldid=116358182
 
@@ -92,6 +92,7 @@ return bestfit
             print('numpy.mean(test_err)',numpy.mean(test_err))
             print('iteration %d:len(alsoinliers) = %d'%(
                 iterations,len(alsoinliers)))
+            print('maybemodel = ', maybemodel)
             print()
         if len(alsoinliers) > d:
             betterdata = numpy.concatenate( (maybeinliers, alsoinliers) )
@@ -123,7 +124,7 @@ class LinearLeastSquaresModel:
 
     This class serves as an example that fulfills the model interface
     needed by the ransac() function.
-    
+
     """
     def __init__(self,input_columns,output_columns,debug=False):
         self.input_columns = input_columns
@@ -141,15 +142,42 @@ class LinearLeastSquaresModel:
         err_per_point = numpy.sum((B-B_fit)**2,axis=1) # sum squared error per row
         return err_per_point
 
-def test():
+class PolynomialModel:
+    """polynomial system solved using polyfit
+
+    This class serves as an example that fulfills the model interface
+    needed by the ransac() function.
+
+    """
+    def __init__(self, degree, debug=False):
+        self.degree = degree
+        self.debug = debug
+
+    def fit(self, data):
+        coefficients = numpy.polyfit(data[:,0], data[:,1], self.degree)
+        return coefficients
+
+    def get_error( self, data, model):
+        B = data[:,1]
+        B_fit = numpy.polyval(model, data[:,0])
+        err_per_point = (B-B_fit)**2 # sum squared error per row
+        return err_per_point
+
+
+def test_polynomial():
     # generate perfect input data
 
     n_samples = 500
     n_inputs = 1
     n_outputs = 1
     A_exact = 20*numpy.random.random((n_samples,n_inputs) )
-    perfect_fit = 60*numpy.random.normal(size=(n_inputs,n_outputs) ) # the model
-    B_exact = scipy.dot(A_exact,perfect_fit)
+    perfect_fit = numpy.random.normal(size=(3,) ) # the model
+    perfect_fit[0] *= 10
+    perfect_fit[1] *= 1
+    print(perfect_fit)
+    B_exact = numpy.polyval(perfect_fit, A_exact)
+    #print("polyfit on exact = ", numpy.polyfit(A_exact[:,0], B_exact[:,0], 2))
+    #print(B_exact)
     assert B_exact.shape == (n_samples,n_outputs)
 
     # add a little gaussian noise (linear least squares alone should handle this well)
@@ -158,29 +186,36 @@ def test():
 
     if 1:
         # add some outliers
-        n_outliers = 100
+        n_outliers = 200
         all_idxs = numpy.arange( A_noisy.shape[0] )
         numpy.random.shuffle(all_idxs)
         outlier_idxs = all_idxs[:n_outliers]
         non_outlier_idxs = all_idxs[n_outliers:]
         A_noisy[outlier_idxs] =  20*numpy.random.random((n_outliers,n_inputs) )
-        B_noisy[outlier_idxs] = 50*numpy.random.normal(size=(n_outliers,n_outputs) )
+        B_noisy[outlier_idxs] = numpy.polyval(perfect_fit, A_noisy[outlier_idxs]) + 1000 + 500 * numpy.random.normal(size=(n_outliers,n_outputs) )
 
     # setup model
 
     all_data = numpy.hstack( (A_noisy,B_noisy) )
     input_columns = range(n_inputs) # the first columns of the array
     output_columns = [n_inputs+i for i in range(n_outputs)] # the last columns of the array
-    debug = True
-    model = LinearLeastSquaresModel(input_columns,output_columns,debug=debug)
+    debug = False
+    degree = 2
+    model = PolynomialModel(degree=degree, debug=debug)
 
-    linear_fit,resids,rank,s = scipy.linalg.lstsq(all_data[:,input_columns],
-                                                  all_data[:,output_columns])
+    polynomial_fit = numpy.polyfit(A_noisy[:,0], B_noisy[:,0], degree)
 
     # run RANSAC algorithm
-    ransac_fit, ransac_data = ransac(all_data, model,
-                                     50, 1000, 7e3, 300, # misc. parameters
-                                     debug=debug,return_all=True)
+    ransac_fit, ransac_data = ransac(all_data,        #data - a set of observed data points
+                                     model,           #model - a model that can be fitted to data points
+                                     20,              #n - the minimum number of data values required to fit the model
+                                     1000,             #k - the maximum number of iterations allowed in the algorithm
+                                     7e3,             #t - a threshold value for determining when a data point fits a model
+                                     200,              #d - the number of close data values required to assert that a model fits well to data
+                                     debug=debug,     #
+                                     return_all=True) #
+
+
     if 1:
         import pylab
 
@@ -194,17 +229,17 @@ def test():
             pylab.plot( A_noisy[non_outlier_idxs,0], B_noisy[non_outlier_idxs,0], 'k.', label='noisy data' )
             pylab.plot( A_noisy[outlier_idxs,0], B_noisy[outlier_idxs,0], 'r.', label='outlier data' )
         pylab.plot( A_col0_sorted[:,0],
-                    numpy.dot(A_col0_sorted,ransac_fit)[:,0],
+                    numpy.polyval(ransac_fit, A_col0_sorted),
                     label='RANSAC fit' )
         pylab.plot( A_col0_sorted[:,0],
-                    numpy.dot(A_col0_sorted,perfect_fit)[:,0],
+                    numpy.polyval(perfect_fit, A_col0_sorted),
                     label='exact system' )
         pylab.plot( A_col0_sorted[:,0],
-                    numpy.dot(A_col0_sorted,linear_fit)[:,0],
-                    label='linear fit' )
+                    numpy.polyval(polynomial_fit, A_col0_sorted),
+                    label='polynomial fit' )
         pylab.legend()
         pylab.show()
 
 if __name__=='__main__':
-    test()
-    
+    test_polynomial()
+
