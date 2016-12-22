@@ -13,7 +13,7 @@ for fname in image_files:
     # when running lane detection on complete different frames
     # use a newly initialised detector each time
     # because previous values will not make sense
-    detector = lane.LaneDetector("calibration.p", debug=False)
+    detector = lane.LaneDetector("calibration.p", debug=True)
 
     processed = detector.process(img)
     cv2.imshow('image', processed)

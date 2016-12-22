@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import pickle
+import ransac
 import scipy.signal
 import thresholds
 
@@ -49,9 +50,9 @@ class Line():
     def _locate_lane(self, birdseye, starting_centre):
         lane_mask = np.zeros_like(birdseye)
 
-        row_start = birdseye.shape[0]//10 * 9
-        row_end = birdseye.shape[0]//10 * 10
-        prev_centre = starting_centre
+        row_start = int(birdseye.shape[0]/10 * 9)
+        row_end = int(birdseye.shape[0]/10 * 10)
+        prev_centre = int(starting_centre)
         col_start = prev_centre - 50
         col_end = prev_centre + 50
         lane_mask[row_start:row_end, col_start:col_end] = 1
@@ -107,8 +108,31 @@ class Line():
         lane_pixels = np.nonzero(lane)
         self.allx = lane_pixels[1] # * xm_per_pix
         self.ally = lane_pixels[0] # * ym_per_pix
+
+        if len(self.allx) < 10:
+            self.detected = False
+            return
+
+        """
+        # code to fit a polynomial using RANSAC
+        model = ransac.PolynomialModel(degree=2, debug=False)
+
+        all_data = np.hstack( (self.ally[:, np.newaxis], self.allx[:, np.newaxis]) ) # fit the model x = Ay^2 + By + C
+        # run RANSAC algorithm
+        n_samples = all_data.shape[0]
+        ransac_fit, ransac_data = ransac.ransac(all_data,        #data - a set of observed data points
+                                                model,           #model - a model that can be fitted to data points
+                                                n_samples//10,   #n - the minimum number of data values required to fit the model
+                                                1000,            #k - the maximum number of iterations allowed in the algorithm
+                                                7e3,             #t - a threshold value for determining when a data point fits a model
+                                                n_samples//2,    #d - the number of close data values required to assert that a model fits well to data
+                                                debug=False,     #
+                                                return_all=True) #
+        self.current_fit = ransac_fit
+        """
+
         self.current_fit = np.polyfit(self.ally, self.allx, 2)
-        self.fitx = self.current_fit[0]*self.yvals**2 + self.current_fit[1]*self.yvals + self.current_fit[2]
+        self.fitx = np.polyval(self.current_fit, self.yvals)
 
         curvature_fit = np.polyfit(self.ally * self.ym_per_pix, self.allx * self.xm_per_pix, 2)
 
@@ -190,18 +214,30 @@ class LaneDetector:
                          | (s_binary == 1)] = 1
 
         if self.debug:
-            f, (ax1, ax2) = plt.subplots(1, 2, figsize=(20,10))
-            ax1.set_title('Stacked thresholds')
-            ax1.imshow(color_binary)
+            f, (ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9) = plt.subplots(3, 3, figsize=(20,10))
+            ax1.set_title('hue')
+            ax1.imshow(h)
 
-            ax2.set_title('Combined S channel and gradient thresholds')
-            ax2.imshow(combined_binary, cmap='gray')
+            ax2.set_title('lightness')
+            ax2.imshow(l)
+
+            ax3.set_title('saturation')
+            ax3.imshow(s)
+
+            ax4.set_title('sobels')
+            ax4.imshow(sobels_binary, cmap='gray')
+
+
+            
             plt.show()
 
         return combined_binary
 
     def sanity_check(self):
-        return True
+        sane = True
+        sane & (np.abs(self.left.radius_of_curvature - self.right.radius_of_curvature) < 500)
+
+        return sane
 
     def process(self, img):
 
@@ -221,7 +257,7 @@ class LaneDetector:
         if not self.sanity_check():
             # use previous values
             # mark the lanes as not detected
-            pass
+            self.detected = False
 
         if self.debug:
             f = plt.figure()
