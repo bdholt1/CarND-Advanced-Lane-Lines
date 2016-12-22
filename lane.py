@@ -115,6 +115,7 @@ class Line():
         # calculate lane curvature at the bottom of the image
         self.radius_of_curvature = calculate_lane_curvature(720, curvature_fit)
 
+        self.detected = True
 
 class LaneDetector:
 
@@ -220,7 +221,7 @@ class LaneDetector:
         if not self.sanity_check():
             # use previous values
             # mark the lanes as not detected
-
+            pass
 
         if self.debug:
             f = plt.figure()
