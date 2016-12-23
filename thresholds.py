@@ -17,6 +17,6 @@ def mag_thresh(sobelx, sobely, thresh_min=0, thresh_max=255):
     scaled_sobel = np.uint8(255 * mag_sobel / np.max(mag_sobel))
     return threshold(scaled_sobel, thresh_min, thresh_max)
 
-def dir_threshold(sobelx, sobely, thresh_min=0, thresh_max=np.pi/2):    
+def dir_threshold(sobelx, sobely, thresh_min=0, thresh_max=np.pi/2):
     dir_sobel = np.arctan2(np.absolute(sobely), np.absolute(sobelx))
     return threshold(dir_sobel, thresh_min, thresh_max)

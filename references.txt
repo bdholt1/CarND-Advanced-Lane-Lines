@@ -1,0 +1,4 @@
+https://infoscience.epfl.ch/record/111781/files/piecewise_shadows.pdf
+http://cs.haifa.ac.il/hagit/courses/seminars/shadowRemoval/shadowRemovalPapers.html
+http://aqua.cs.uiuc.edu/site/projects/shadow.html
+

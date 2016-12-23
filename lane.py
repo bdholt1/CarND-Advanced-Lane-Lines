@@ -177,7 +177,7 @@ class LaneDetector:
 
     def find_candidate_lane_pixels(self, undistorted):
         ksize = 5
-        gray = cv2.cvtColor(undistorted, cv2.COLOR_RGB2GRAY)
+        gray = cv2.cvtColor(undistorted, cv2.COLOR_BGR2GRAY)
 
         blur = cv2.GaussianBlur(gray, (ksize, ksize), 1)
         sobelx = cv2.Sobel(blur, cv2.CV_64F, 1, 0, ksize)
@@ -198,11 +198,11 @@ class LaneDetector:
         # Combine image masks into a lane detector mask
         gradient_binary = np.dstack((np.zeros_like(gray), sobels_binary, dir_binary))
 
-        hls = cv2.cvtColor(undistorted, cv2.COLOR_RGB2HLS)
-        h = hls[:,:,0]
-        l = hls[:,:,1]
-        s = hls[:,:,2]
-        h_binary = thresholds.threshold(h, 0, 100)
+        hsv = cv2.cvtColor(undistorted, cv2.COLOR_BGR2HSV)
+        h = hsv[:,:,0]
+        s = hsv[:,:,1]
+        v = hsv[:,:,2]
+        h_binary = thresholds.threshold(h, 50, 70)
         s_binary = thresholds.threshold(s, 200, 255)
 
         color_binary = np.dstack(( np.zeros_like(h_binary), h_binary, s_binary))
@@ -214,21 +214,30 @@ class LaneDetector:
                          | (s_binary == 1)] = 1
 
         if self.debug:
-            f, (ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9) = plt.subplots(3, 3, figsize=(20,10))
-            ax1.set_title('hue')
-            ax1.imshow(h)
+            f, axes = plt.subplots(3, 3, figsize=(20,10))
 
-            ax2.set_title('lightness')
-            ax2.imshow(l)
+            rgb = cv2.cvtColor(undistorted, cv2.COLOR_BGR2RGB)
+            axes[0,0].set_title('original')
+            axes[0,0].imshow(rgb)
 
-            ax3.set_title('saturation')
-            ax3.imshow(s)
+            axes[0,1].set_title('hue')
+            axes[0,1].imshow(h, cmap='gray')
 
-            ax4.set_title('sobels')
-            ax4.imshow(sobels_binary, cmap='gray')
+            axes[0,2].set_title('saturation')
+            axes[0,2].imshow(s, cmap='gray')
 
+            axes[1,0].set_title('value')
+            axes[1,0].imshow(v, cmap='gray')
 
-            
+            axes[1,1].set_title('sobels')
+            axes[1,1].imshow(sobels_binary, cmap='gray')
+
+            axes[1,2].set_title('direction')
+            axes[1,2].imshow(dir_binary, cmap='gray')
+
+            axes[2,0].set_title('h thresholded')
+            axes[2,0].imshow(h_binary, cmap='gray')
+
             plt.show()
 
         return combined_binary
