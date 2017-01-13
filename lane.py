@@ -176,7 +176,7 @@ class LaneDetector:
 
 
     def find_candidate_lane_pixels(self, undistorted):
-        ksize = 5
+        ksize = 21
         gray = cv2.cvtColor(undistorted, cv2.COLOR_BGR2GRAY)
 
         blur = cv2.GaussianBlur(gray, (ksize, ksize), 1)
@@ -188,30 +188,36 @@ class LaneDetector:
         sobels_binary = np.zeros(gray.shape, np.float32)
         sobels_binary[ ((gradx == 1) & (grady == 1)) ] = 1
 
-        mags = thresholds.mag_thresh(sobelx, sobely, 30, 130)
-        dirs = thresholds.dir_threshold(sobelx, sobely,
-                                        70 / 180. * np.pi / 2,
-                                        130 / 180. * np.pi / 2)
-        dir_binary = np.zeros(gray.shape, np.float32)
-        dir_binary[ ((mags == 1) & (dirs == 1)) ] = 1
+        mag_binary = thresholds.mag_thresh(sobelx, sobely, 30, 255)
+        kernel = np.ones((5,5),np.uint8)
+        mag_binary = cv2.morphologyEx(mag_binary, cv2.MORPH_CLOSE, kernel)
+        mag_binary = cv2.morphologyEx(mag_binary, cv2.MORPH_OPEN, kernel)
 
-        # Combine image masks into a lane detector mask
-        gradient_binary = np.dstack((np.zeros_like(gray), sobels_binary, dir_binary))
+        dir_binary = thresholds.dir_threshold(sobelx, sobely,
+                                              70 / 180. * np.pi / 2,
+                                              130 / 180. * np.pi / 2)
+        kernel = np.ones((3,3),np.uint8)
+        dir_binary = cv2.morphologyEx(dir_binary, cv2.MORPH_OPEN, kernel)
+        kernel = np.ones((5,5),np.uint8)
+        dir_binary = cv2.morphologyEx(dir_binary, cv2.MORPH_CLOSE, kernel)
 
-        hsv = cv2.cvtColor(undistorted, cv2.COLOR_BGR2HSV)
-        h = hsv[:,:,0]
-        s = hsv[:,:,1]
-        v = hsv[:,:,2]
-        h_binary = thresholds.threshold(h, 50, 70)
-        s_binary = thresholds.threshold(s, 200, 255)
+        luv = cv2.cvtColor(undistorted, cv2.COLOR_BGR2LUV)
+        l = luv[:,:,0]
+        u = luv[:,:,1]
+        v = luv[:,:,2]
+        l_binary = thresholds.threshold(l, 210, 255)
+        u_binary = thresholds.threshold(u, 110, 130)
+        v_binary = thresholds.threshold(v, 160, 190)
 
-        color_binary = np.dstack(( np.zeros_like(h_binary), h_binary, s_binary))
-
-        # Combine image masks into a lane detector mask
-        combined_binary = np.zeros(gray.shape, np.float32)
-        combined_binary[ ((gradx == 1) & (grady == 1))
-                         | ((mags == 1) & (dirs == 1))
-                         | (s_binary == 1)] = 1
+        combined = np.zeros_like(dir_binary)
+        ## strong gradients in X and Y AND strong gradients between 90 and 120 degrees
+        # AND high lightness in LUV (good for white)
+        # AND U and V thresholded (good for yellow)
+        combined[#  (((gradx == 1) & (grady == 1)) |
+            ((mag_binary == 1) & (dir_binary == 1)) | # gradients
+            (l_binary == 1) | # white
+            ((u_binary == 1) & (v_binary == 1)) # yellow
+        ] = 1
 
         if self.debug:
             f, axes = plt.subplots(3, 3, figsize=(20,10))
@@ -240,7 +246,7 @@ class LaneDetector:
 
             plt.show()
 
-        return combined_binary
+        return combined
 
     def sanity_check(self):
         sane = True
