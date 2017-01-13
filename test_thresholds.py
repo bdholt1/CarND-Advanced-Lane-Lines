@@ -24,17 +24,17 @@ cv2.namedWindow('GradDir')
 cv2.createTrackbar('thresh_min','GradDir', 75, 180, nothing)
 cv2.createTrackbar('thresh_max','GradDir', 150, 180, nothing)
 
-cv2.namedWindow('Hue')
-cv2.createTrackbar('thresh_min','Hue', 18, 180, nothing)
-cv2.createTrackbar('thresh_max','Hue', 25, 180, nothing)
+cv2.namedWindow('L')
+cv2.createTrackbar('thresh_min','L', 210, 255, nothing)
+cv2.createTrackbar('thresh_max','L', 255, 255, nothing)
 
-cv2.namedWindow('Saturation')
-cv2.createTrackbar('thresh_min','Saturation', 43, 255, nothing)
-cv2.createTrackbar('thresh_max','Saturation', 255, 255, nothing)
+cv2.namedWindow('U')
+cv2.createTrackbar('thresh_min','U', 110, 255, nothing)
+cv2.createTrackbar('thresh_max','U', 130, 255, nothing)
 
-cv2.namedWindow('Value')
-cv2.createTrackbar('thresh_min','Value', 220, 255, nothing)
-cv2.createTrackbar('thresh_max','Value', 255, 255, nothing)
+cv2.namedWindow('V')
+cv2.createTrackbar('thresh_min','V', 160, 255, nothing)
+cv2.createTrackbar('thresh_max','V', 190, 255, nothing)
 
 cv2.namedWindow('Combined')
 
@@ -43,30 +43,19 @@ if len(sys.argv) < 2:
 
 image = cv2.imread(sys.argv[1])
 
-img_yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
-
-# equalize the histogram of the Y channel
-#img_yuv[:,:,0] = cv2.equalizeHist(img_yuv[:,:,0])
-# create a CLAHE object (Arguments are optional).
-clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-img_yuv[:,:,0] = clahe.apply(img_yuv[:,:,0])
-
-# convert the YUV image back to RGB format
-image = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
-
-ksize = 21 # Choose a larger odd number to smooth gradient measurements
+luv = cv2.cvtColor(image, cv2.COLOR_BGR2LUV)
+l = luv[:,:,0]
+u = luv[:,:,1]
+v = luv[:,:,2]
 
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+ksize = 21 # Choose a larger odd number to smooth gradient measurements
 
 blur = cv2.GaussianBlur(gray, (ksize, ksize), 1)
 
 sobelx = cv2.Sobel(blur, cv2.CV_64F, 1, 0, ksize)
 sobely = cv2.Sobel(blur, cv2.CV_64F, 0, 1, ksize)
-
-hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-h = hsv[:,:,0]
-s = hsv[:,:,1]
-v = hsv[:,:,2]
 
 while True:
 
@@ -91,38 +80,41 @@ while True:
     kernel = np.ones((5,5),np.uint8)
     dir_binary = cv2.morphologyEx(dir_binary, cv2.MORPH_CLOSE, kernel)
 
-    hue_binary = thresholds.threshold(h,
-                                     cv2.getTrackbarPos('thresh_min','Hue'),
-                                     cv2.getTrackbarPos('thresh_max','Hue'))
+    l_binary = thresholds.threshold(l,
+                                     cv2.getTrackbarPos('thresh_min','L'),
+                                     cv2.getTrackbarPos('thresh_max','L'))
 
-    saturation_binary = thresholds.threshold(s,
-                                             cv2.getTrackbarPos('thresh_min','Saturation'),
-                                             cv2.getTrackbarPos('thresh_max','Saturation'))
+    u_binary = thresholds.threshold(u,
+                                    cv2.getTrackbarPos('thresh_min','U'),
+                                    cv2.getTrackbarPos('thresh_max','U'))
 
-    value_binary = thresholds.threshold(v,
-                                        cv2.getTrackbarPos('thresh_min','Value'),
-                                        cv2.getTrackbarPos('thresh_max','Value'))
+    v_binary = thresholds.threshold(v,
+                                    cv2.getTrackbarPos('thresh_min','V'),
+                                    cv2.getTrackbarPos('thresh_max','V'))
 
     combined = np.zeros_like(dir_binary)
-    ## strong gradients in X and Y OR strong gradients between 90 and 120 degrees
-    ## AND hue between 15 and 25 (the yellow slice in the hue cake also includes white) OR white (value 215 to 255 gives strong white )
-    ## AND NOT saturation between 43 and 255 (kills everything off the road)
+    ## strong gradients in X and Y AND strong gradients between 90 and 120 degrees
+    # AND high lightness in LUV (good for white)
+    # AND U and V thresholded (good for yellow)
     combined[#  (((gradx == 1) & (grady == 1)) |
-                ((mag_binary == 1) & (dir_binary == 1))
-              & ((hue_binary == 1) | (value_binary == 1))
-            # & (saturation_binary == 0)
+              ((mag_binary == 1) & (dir_binary == 1)) | # gradients
+               (l_binary == 1) | # white
+              ((u_binary == 1) & (v_binary == 1)) # yellow
             ] = 1
 
     cv2.imshow('Original', image)
+    cv2.imshow('Original L', l)
+    cv2.imshow('Original U', u)
+    cv2.imshow('Original V', v)
 
     cv2.imshow('GradX', gradx)
     cv2.imshow('GradY', grady)
     cv2.imshow('GradMag', mag_binary)
     cv2.imshow('GradDir', dir_binary)
 
-    cv2.imshow('Hue', hue_binary)
-    cv2.imshow('Saturation', saturation_binary)
-    cv2.imshow('Value', value_binary)
+    cv2.imshow('L', l_binary)
+    cv2.imshow('U', u_binary)
+    cv2.imshow('V', v_binary)
 
     cv2.imshow('Combined', combined)
 
