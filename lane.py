@@ -16,6 +16,10 @@ def calculate_lane_curvature(y, fit):
                / np.absolute(2*fit[0])
     return curverad
 
+# Define conversions in x and y from pixels space to meters
+ym_per_pixel = 30/720 # meters per pixel in y dimension
+xm_per_pixel = 3.7/700 # meters per pixel in x dimension
+
 class Line():
     def __init__(self, is_left):
         # is this the left or the right lane?
@@ -40,10 +44,6 @@ class Line():
         self.allx = None
         #y values for detected line pixels
         self.ally = None
-
-        # Define conversions in x and y from pixels space to meters
-        self.ym_per_pix = 30/720 # meters per pixel in y dimension
-        self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
         self.yvals = np.linspace(0, 100, num=101)*7.2  # to cover same y-range as image
 
@@ -78,7 +78,7 @@ class Line():
 
         return lane_mask
 
-    def new_birdseye(self, birdseye):
+    def find_lane_from_birdseye(self, birdseye):
 
         if not self.detected:
             print("detection lost")
@@ -89,15 +89,9 @@ class Line():
             starting_points = scipy.signal.find_peaks_cwt(histogram, np.array([200]))
 
             if self.is_left:
-                if starting_points[0] < starting_points[1]:
-                    start = starting_points[0]
-                else:
-                    start = starting_points[1]
+                start = min(starting_points[0], starting_points[1])
             else:
-                if starting_points[0] < starting_points[1]:
-                    start = starting_points[1]
-                else:
-                    start = starting_points[0]
+                start = max(starting_points[0], starting_points[1])
         else:
             start = self.fitx[-1]
 
@@ -106,8 +100,8 @@ class Line():
 
         # Fit a second order polynomial to each lane line
         lane_pixels = np.nonzero(lane)
-        self.allx = lane_pixels[1] # * xm_per_pix
-        self.ally = lane_pixels[0] # * ym_per_pix
+        self.allx = lane_pixels[1] # * xm_per_pixel
+        self.ally = lane_pixels[0] # * ym_per_pixel
 
         if len(self.allx) < 10:
             self.detected = False
@@ -134,10 +128,13 @@ class Line():
         self.current_fit = np.polyfit(self.ally, self.allx, 2)
         self.fitx = np.polyval(self.current_fit, self.yvals)
 
-        curvature_fit = np.polyfit(self.ally * self.ym_per_pix, self.allx * self.xm_per_pix, 2)
+        curvature_fit = np.polyfit(self.ally * ym_per_pixel, self.allx * xm_per_pixel, 2)
 
         # calculate lane curvature at the bottom of the image
         self.radius_of_curvature = calculate_lane_curvature(720, curvature_fit)
+
+        # calcuate the number of meters the lane is from the centre of the image
+        self.line_base_pos = (1280/2 - np.polyval(self.current_fit, 720)) * xm_per_pixel
 
         self.detected = True
 
@@ -168,12 +165,17 @@ class LaneDetector:
                           [3*self.cols/4, self.rows],
                           [self.cols/4, self.rows]])
 
+        # calculate the perspective transform once at the beginning
         self.M = cv2.getPerspectiveTransform(src, dst)
         self.Minv = cv2.getPerspectiveTransform(dst, src)
 
         self.left = Line(is_left=True)
         self.right = Line(is_left=False)
 
+        # Use the average of the last 10 detections for display
+        self.N = 10
+        self.weights = 0.5 * np.exp(-0.5 * np.arange(self.N))
+        self.weights /= np.sum(self.weights)
 
     def find_candidate_lane_pixels(self, undistorted):
         ksize = 21
@@ -249,8 +251,39 @@ class LaneDetector:
         return combined
 
     def sanity_check(self):
+        # start on the assumption that the lanes are 'sane'
         sane = True
-        sane & (np.abs(self.left.radius_of_curvature - self.right.radius_of_curvature) < 500)
+
+        # Check that the radius of curvature of both of the lanes are 'similar'
+        # Because ROC varies from 0 to inf, it's hard to find a threshold to use that would
+        #   make sense - sample values are 2000 to 3000.
+        # Instead, compare 1/ROC for the left and right lanes.
+        curvature_similar = (np.abs(1./self.left.radius_of_curvature - 1./self.right.radius_of_curvature) < 0.1)
+        if not curvature_similar:
+            print("Curvatures are not similar")
+        sane &= curvature_similar
+
+        # Check that the lanes are more or less parallel, which I'm
+        # assuming means that the std dev of the distances between the x values
+        # of the lines is within 10cm
+        dist_apart = []
+        for i in range(720, 360, -1):
+            x_left = np.polyval(self.left.current_fit, i) *  xm_per_pixel
+            x_right = np.polyval(self.right.current_fit, i) * xm_per_pixel
+            dist = x_right - x_left
+            dist_apart.append(dist)
+
+        lines_parallel = (np.std(dist_apart) < 0.1)
+        if not lines_parallel:
+            print("Lines are not parallel")
+        sane &= lines_parallel
+
+        # Check that the lines are roughly the right distance apart, which I'm
+        # assuming to be 0.5m either side of 3.7m
+        lines_correct_distance =  (3.7 - np.mean(dist_apart) < 0.5)
+        if not lines_correct_distance:
+            print("Lines are within 0.5m of 3.7m")
+        sane &= lines_parallel
 
         return sane
 
@@ -266,13 +299,27 @@ class LaneDetector:
 
         birdseye = cv2.warpPerspective(combined, self.M, (self.cols, self.rows))
 
-        self.left.new_birdseye(birdseye)
-        self.right.new_birdseye(birdseye)
+        self.left.find_lane_from_birdseye(birdseye)
+        self.right.find_lane_from_birdseye(birdseye)
 
         if not self.sanity_check():
-            # use previous values
-            # mark the lanes as not detected
-            self.detected = False
+            print("Lane detection failed sanity check!")
+
+            self.left.detected = False
+            self.right.detected = False
+        else:
+            # Since the lane detection is sane, append the x values to the appropriate list
+            self.left.recent_xfitted.append(self.left.fitx)
+            self.right.recent_xfitted.append(self.right.fitx)
+
+            if len(self.left.recent_xfitted) < self.N:
+                # for the first few frames use the mean of the recent fits
+                self.left.bestx = np.mean(np.array(self.left.recent_xfitted[-self.N:]), axis=0)
+                self.right.bestx = np.mean(np.array(self.right.recent_xfitted[-self.N:]), axis=0)
+            else:
+                # when we have enough frames, use a weighted average
+                self.left.bestx = np.average(np.array(self.left.recent_xfitted[-self.N:]), axis=0, weights=self.weights)
+                self.right.bestx = np.average(np.array(self.right.recent_xfitted[-self.N:]), axis=0, weights=self.weights)
 
         if self.debug:
             f = plt.figure()
@@ -291,12 +338,15 @@ class LaneDetector:
         color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
         # Recast the x and y points into usable format for cv2.fillPoly()
-        pts_left = np.array([np.transpose(np.vstack([self.left.fitx, self.left.yvals]))])
-        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right.fitx, self.right.yvals])))])
+        pts_left = np.array([np.transpose(np.vstack([self.left.bestx, self.left.yvals]))])
+        pts_middle = np.transpose(np.vstack([(self.left.bestx + self.right.bestx)/2.0,
+                                             (self.left.yvals + self.right.yvals)/2.0]))
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right.bestx, self.right.yvals])))])
         pts = np.hstack((pts_left, pts_right))
 
         # Draw the lane onto the warped blank image
         cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
+        cv2.polylines(color_warp, np.int_([pts_middle]), False, (255,0,0), thickness=3)
 
         # Warp the blank back to original image space using inverse perspective matrix (Minv)
         newwarp = cv2.warpPerspective(color_warp, self.Minv, (self.cols, self.rows))
@@ -304,8 +354,10 @@ class LaneDetector:
         result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(result, str(self.left.radius_of_curvature), (10,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
-        cv2.putText(result, str(self.right.radius_of_curvature), (1000,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
+        cv2.putText(result, "{0:.2f}".format(self.left.radius_of_curvature), (10,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
+        cv2.putText(result, "{0:.2f}".format(self.right.radius_of_curvature), (1100,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
+        position_off_centre = (self.left.line_base_pos + self.right.line_base_pos) / 2.0
+        cv2.putText(result, "{0:.3f}".format(position_off_centre) + "m", (600,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
 
         return result
 
