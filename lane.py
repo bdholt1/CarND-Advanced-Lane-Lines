@@ -282,8 +282,8 @@ class LaneDetector:
         # assuming to be 0.5m either side of 3.7m
         lines_correct_distance =  (3.7 - np.mean(dist_apart) < 0.5)
         if not lines_correct_distance:
-            print("Lines are within 0.5m of 3.7m")
-        sane &= lines_parallel
+            print("Lines are not within 0.5m of 3.7m")
+        sane &= lines_correct_distance
 
         return sane
 
