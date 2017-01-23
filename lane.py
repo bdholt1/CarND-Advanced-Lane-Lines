@@ -88,6 +88,11 @@ class Line():
             # use a very wide window (200) to ensure only the highest peaks
             starting_points = scipy.signal.find_peaks_cwt(histogram, np.array([200]))
 
+            if len(starting_points) < 2:
+                print("Error: Could not detect 2 peaks in histogram")
+                self.detected = False
+                return False
+
             if self.is_left:
                 start = min(starting_points[0], starting_points[1])
             else:
