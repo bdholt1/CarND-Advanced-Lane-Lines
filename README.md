@@ -111,8 +111,12 @@ settled on LUV space to detect white and yellow.  It's clear to me that this is 
 active research and a real-time algorithm to remove shadows (detect and in-paint accurately) would be 
 welcome.
 
+Some (sometimes many) of the lane pixels that are detected are false positives (outliers).  I experimented
+with RANSAC to remove these outliers, but I found that the algorithm was extremely slow. I didn't have time
+to optimise it so I dropped it, but this is something I would try again in future. 
+
 Another area that I would pursue is alternative approaches to detecting lane pixels. Semantic segmentation
-models trained on the CityScapes, KITTI or Synthia datasets should yield better lane detections than
+models trained on the CityScapes or Synthia datasets should yield better lane detections than
 the gradient and colour approach here.  Perhaps they might complement each other, but this is something
 I plan to try out. 
 
