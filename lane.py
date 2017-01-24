@@ -284,10 +284,10 @@ class LaneDetector:
         sane &= lines_parallel
 
         # Check that the lines are roughly the right distance apart, which I'm
-        # assuming to be 0.5m either side of 3.7m
-        lines_correct_distance =  (3.7 - np.mean(dist_apart) < 0.5)
+        # assuming to be 1m either side of 3.7m
+        lines_correct_distance =  (np.abs(3.7 - np.mean(dist_apart)) < 1)
         if not lines_correct_distance:
-            print("Lines are not within 0.5m of 3.7m")
+            print("Lines are not within 1m of 3.7m")
         sane &= lines_correct_distance
 
         return sane
@@ -297,8 +297,9 @@ class LaneDetector:
         if (img.shape[0] != 1280 or img.shape[1] != 720):
             img = cv2.resize(img, (1280, 720))
 
+        bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         # Undistort the image
-        undist = cv2.undistort(img, self.mtx, self.dist, None, self.mtx)
+        undist = cv2.undistort(bgr, self.mtx, self.dist, None, self.mtx)
 
         combined = self.find_candidate_lane_pixels(undist)
 
@@ -364,5 +365,6 @@ class LaneDetector:
         position_off_centre = (self.left.line_base_pos + self.right.line_base_pos) / 2.0
         cv2.putText(result, "{0:.3f}".format(position_off_centre) + "m", (600,650), font, 1, (255,255,255), 2, cv2.LINE_AA)
 
-        return result
+        rgb_result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+        return rgb_result
 

@@ -23,11 +23,11 @@ detector = lane.LaneDetector("calibration.p", debug=False)
 
 for frame in reader.nextFrame():
 
-    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-    processed = detector.process(bgr)
+    processed = detector.process(frame)
 
+    bgr = cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
     # Display the resulting frame
-    cv2.imshow('frame', processed)
+    cv2.imshow('frame', bgr)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
