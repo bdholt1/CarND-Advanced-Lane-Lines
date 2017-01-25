@@ -70,6 +70,10 @@ thresholds, but the LUV colourspace did. In particular I found that the L plane 
 white even in the presence of shadows and varying road colours, and that the U and V spaces together
 were good for discriminating yellow.
 
+Examples of lane pixel detection
+![Solid white right](https://raw.githubusercontent.com/bdholt1/CarND-Advanced-Lane-Lines/master/test_images_output/solidWhiteRight.jpg_lane_pixels.png)
+![Solid yellow left](https://raw.githubusercontent.com/bdholt1/CarND-Advanced-Lane-Lines/master/test_images_output/solidYellowLeft.jpg_lane_pixels.png)
+
 Once reasonable results were found for the binary image that represents lane pixels, we move onto
 the parts of the pipeline. The pipeline in implemented in lane.py in the class LaneDetector.
 The main logic is in the process() function where the following algorithm is applied:
@@ -84,6 +88,17 @@ The main logic is in the process() function where the following algorithm is app
 This was tested using 
 
 $ python opencv_lane.py project_video.mp4
+
+Examples of warping to birdseye view 
+
+![Solid white right](https://raw.githubusercontent.com/bdholt1/CarND-Advanced-Lane-Lines/master/test_images_output/solidWhiteRight.jpg_birdseye.png)
+![Solid yellow left](https://raw.githubusercontent.com/bdholt1/CarND-Advanced-Lane-Lines/master/test_images_output/solidYellowLeft.jpg_birdseye.png)
+
+Examples of curve fitting to detected lane pixels in birdseye view space
+Solid white right
+![Solid white right](https://raw.githubusercontent.com/bdholt1/CarND-Advanced-Lane-Lines/master/test_images_output/solidWhiteRight.jpg_curve_fitting.png)
+Solid yellow left
+![Solid yellow left](https://raw.githubusercontent.com/bdholt1/CarND-Advanced-Lane-Lines/master/test_images_output/solidYellowLeft.jpg_curve_fitting.png)
 
 ### Pipeline (video)
 
