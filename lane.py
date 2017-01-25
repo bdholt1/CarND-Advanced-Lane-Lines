@@ -5,6 +5,7 @@ import matplotlib.image as mpimg
 import pickle
 import ransac
 import scipy.signal
+import os
 import thresholds
 
 def smooth(x, k=5):
@@ -145,7 +146,7 @@ class Line():
 
 class LaneDetector:
 
-    def __init__(self, calibration_file, debug=False):
+    def __init__(self, calibration_file, debug=False, debug_file=None):
 
         self.cols = 1280
         self.rows = 720
@@ -157,6 +158,7 @@ class LaneDetector:
 
         # store whether to debug
         self.debug = debug
+        self.debug_file = os.path.basename(debug_file)
 
         # Set up the perspective transform to bird's-eye view
         # in order: top-left, top-right, bottom-right, bottom-left
@@ -227,31 +229,28 @@ class LaneDetector:
         ] = 1
 
         if self.debug:
-            f, axes = plt.subplots(3, 3, figsize=(20,10))
+            print("plotting lane pixels")
+            plt.clf()
+            f, axes = plt.subplots(1, 5, figsize=(200,100))
 
             rgb = cv2.cvtColor(undistorted, cv2.COLOR_BGR2RGB)
-            axes[0,0].set_title('original')
-            axes[0,0].imshow(rgb)
+            axes[0].set_title('original')
+            axes[0].imshow(rgb)
 
-            axes[0,1].set_title('hue')
-            axes[0,1].imshow(h, cmap='gray')
+            axes[1].set_title('gradients')
+            axes[1].imshow(((mag_binary == 1) & (dir_binary == 1)), cmap='gray')
 
-            axes[0,2].set_title('saturation')
-            axes[0,2].imshow(s, cmap='gray')
+            axes[2].set_title('white')
+            axes[2].imshow((l_binary == 1), cmap='gray')
 
-            axes[1,0].set_title('value')
-            axes[1,0].imshow(v, cmap='gray')
+            axes[3].set_title('yellow')
+            axes[3].imshow(((u_binary == 1) & (v_binary == 1)), cmap='gray')
 
-            axes[1,1].set_title('sobels')
-            axes[1,1].imshow(sobels_binary, cmap='gray')
+            axes[4].set_title('combined')
+            axes[4].imshow(combined, cmap='gray')
 
-            axes[1,2].set_title('direction')
-            axes[1,2].imshow(dir_binary, cmap='gray')
-
-            axes[2,0].set_title('h thresholded')
-            axes[2,0].imshow(h_binary, cmap='gray')
-
-            plt.show()
+            #plt.show()
+            plt.savefig("test_images_output/" + self.debug_file + "_lane_pixels.png")
 
         return combined
 
@@ -305,8 +304,42 @@ class LaneDetector:
 
         birdseye = cv2.warpPerspective(combined, self.M, (self.cols, self.rows))
 
+        if self.debug:
+            print("plotting birdseye")
+            plt.clf()
+            f, axes = plt.subplots(1, 3, figsize=(200,100))
+
+            rgb = cv2.cvtColor(undist, cv2.COLOR_BGR2RGB)
+            axes[0].set_title('original')
+            axes[0].imshow(rgb)
+
+            axes[1].set_title('lane pixels')
+            axes[1].imshow(combined, cmap='gray')
+
+            axes[2].set_title('birdseye')
+            axes[2].imshow(birdseye, cmap='gray')
+
+            #plt.show()
+            plt.savefig("test_images_output/" + self.debug_file + "_birdseye.png")
+
         self.left.find_lane_from_birdseye(birdseye)
         self.right.find_lane_from_birdseye(birdseye)
+
+        if self.debug:
+            print("plotting curve")
+            plt.clf()
+            f = plt.figure()
+            if self.left.detected:
+                plt.plot(self.left.allx, self.left.ally, 'o', color='red')
+                plt.plot(self.left.fitx, self.left.yvals, color='green', linewidth=3)
+            if self.right.detected:
+                plt.plot(self.right.allx, self.right.ally, 'o', color='blue')
+                plt.plot(self.right.fitx, self.right.yvals, color='green', linewidth=3)
+            plt.xlim(0, 1280)
+            plt.ylim(0, 720)
+            plt.gca().invert_yaxis() # to visualize as we do the images
+            #plt.show()
+            plt.savefig("test_images_output/" + self.debug_file + "_curve_fitting.png")
 
         if not self.sanity_check():
             print("Lane detection failed sanity check!")
@@ -327,32 +360,22 @@ class LaneDetector:
                 self.left.bestx = np.average(np.array(self.left.recent_xfitted[-self.N:]), axis=0, weights=self.weights)
                 self.right.bestx = np.average(np.array(self.right.recent_xfitted[-self.N:]), axis=0, weights=self.weights)
 
-        if self.debug:
-            f = plt.figure()
-            plt.plot(self.left.allx, self.left.ally, 'o', color='red')
-            plt.plot(self.right.allx, self.right.ally, 'o', color='blue')
-            plt.xlim(0, 1280)
-            plt.ylim(0, 720)
-            plt.plot(self.left.fitx, self.left.yvals, color='green', linewidth=3)
-            plt.plot(self.right.fitx, self.right.yvals, color='green', linewidth=3)
-            plt.gca().invert_yaxis() # to visualize as we do the images
-            plt.show()
-
 
         # Create an image to draw the lines on
         warp_zero = np.zeros_like(birdseye).astype(np.uint8)
         color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
         # Recast the x and y points into usable format for cv2.fillPoly()
-        pts_left = np.array([np.transpose(np.vstack([self.left.bestx, self.left.yvals]))])
-        pts_middle = np.transpose(np.vstack([(self.left.bestx + self.right.bestx)/2.0,
-                                             (self.left.yvals + self.right.yvals)/2.0]))
-        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right.bestx, self.right.yvals])))])
-        pts = np.hstack((pts_left, pts_right))
+        if self.left.bestx is not None:
+            pts_left = np.array([np.transpose(np.vstack([self.left.bestx, self.left.yvals]))])
+            pts_middle = np.transpose(np.vstack([(self.left.bestx + self.right.bestx)/2.0,
+                                                 (self.left.yvals + self.right.yvals)/2.0]))
+            pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right.bestx, self.right.yvals])))])
+            pts = np.hstack((pts_left, pts_right))
 
-        # Draw the lane onto the warped blank image
-        cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
-        cv2.polylines(color_warp, np.int_([pts_middle]), False, (255,0,0), thickness=3)
+            # Draw the lane onto the warped blank image
+            cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
+            cv2.polylines(color_warp, np.int_([pts_middle]), False, (255,0,0), thickness=3)
 
         # Warp the blank back to original image space using inverse perspective matrix (Minv)
         newwarp = cv2.warpPerspective(color_warp, self.Minv, (self.cols, self.rows))
